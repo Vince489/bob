@@ -36,12 +36,6 @@ async function runAgencyTest() {
       agentFactory
     });
     
-    // Create the agency factory
-    console.log('Creating AgencyFactory...');
-    const agencyFactory = new AgencyFactory({
-      teamFactory
-    });
-    
     // Create teams for the agency
     console.log('Creating teams...');
     const researchTeamConfig = {
