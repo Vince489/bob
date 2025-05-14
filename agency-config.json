@@ -1,0 +1,82 @@
+{
+  "agents": {
+    "researcher": {
+      "name": "Research Agent",
+      "description": "Searches the internet for information on a given topic",
+      "role": "Internet Researcher",
+      "goals": ["Find accurate and relevant information", "Provide comprehensive search results"],
+      "provider": "gemini",
+      "llmConfig": {
+        "temperature": 0.1,
+        "model": "gemini-2.0-flash-lite"
+      },
+      "tools": ["search"]
+    },
+    "writer": {
+      "name": "Blog Writer",
+      "description": "Writes engaging blog posts based on research",
+      "role": "Content Writer",
+      "goals": ["Create engaging content", "Structure information clearly", "Use a conversational tone"],
+      "provider": "gemini",
+      "llmConfig": {
+        "temperature": 0.7,
+        "model": "gemini-2.0-flash-lite"
+      }
+    }
+  },
+  "teams": {
+    "researchTeam": {
+      "name": "Research Team",
+      "description": "Team responsible for researching topics",
+      "agents": ["researcher"],
+      "jobs": {
+        "performResearch": {
+          "agentName": "researcher",
+          "inputPromptTemplate": "Use the 'search' tool to find up-to-date information on the following topic: {{topic}}. Then, synthesize the search results and provide a comprehensive overview based *only* on the information retrieved from the search tool."
+        }
+      },
+      "workflow": ["performResearch"]
+    },
+    "writingTeam": {
+      "name": "Writing Team",
+      "description": "Team responsible for writing blog posts",
+      "agents": ["writer"],
+      "jobs": {
+        "writeBlogPost": {
+          "agentName": "writer",
+          "inputPromptTemplate": "Based on the following research findings, write an engaging and comprehensive blog post: {{research}}"
+        }
+      },
+      "workflow": ["writeBlogPost"]
+    }
+  },
+  "agency": {
+    "blogCreationAgency": {
+      "name": "Blog Creation Agency",
+      "description": "Agency that researches topics and creates blog posts",
+      "teams": ["researchTeam", "writingTeam"],
+      "workflows": {
+        "createBlogPost": {
+          "steps": [
+            {
+              "name": "research",
+              "teamName": "researchTeam",
+              "workflowName": "performResearch",
+              "inputMapping": {
+                "topic": "initialInputs.topic"
+              }
+            },
+            {
+              "name": "writing",
+              "teamName": "writingTeam",
+              "workflowName": "writeBlogPost",
+              "inputMapping": {
+                "research": "results.research.performResearch"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
