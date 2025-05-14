@@ -27,10 +27,10 @@
       "name": "Image Prompt Generator",
       "description": "Analyzes blog content and generates a suitable image prompt.",
       "role": "Image Prompt Creator",
-      "goals": ["Create detailed and relevant image prompts", "Ensure prompts align with the blog content"],
+      "goals": ["Create one detailed and relevant image prompt", "Ensure the prompt aligns with the blog content"],
       "provider": "gemini",
       "llmConfig": {
-        "temperature": 0.6,
+        "temperature": 0.5,
         "model": "gemini-2.0-flash-lite"
       }
     },
@@ -39,10 +39,12 @@
       "description": "Takes an image prompt and generates an image.",
       "role": "Image Creator",
       "goals": ["Generate high-quality images", "Adhere to the provided prompt"],
-      "provider": "someImageProvider", 
+      "provider": "gemini",
       "llmConfig": {
+        "temperature": 0.7,
+        "model": "gemini-2.0-flash-lite"
       },
-      "tools": ["imageGenerator"] 
+      "tools": ["advancedImageGenerationTool"]
     }
   },
   "teams": {
@@ -60,8 +62,8 @@
         "writeBlogPost": {
           "agentName": "writer",
           "inputMapping": { "researchData": "initialInputs.researchData" },
-          "inputPromptTemplate": "Based on the following research findings: {{researchData}}, write an engaging and comprehensive blog post that is between 800 and 900 words in length.",
-          "outputKey": "blogContent" 
+          "inputPromptTemplate": "Based on the following research findings: {{researchData}}, write an engaging and comprehensive blog post.",
+          "outputKey": "blogContent"
         }
       },
       "workflow": ["performResearch", "writeBlogPost"]
@@ -74,13 +76,13 @@
         "generatePrompt": {
           "agentName": "promptGenerator",
           "inputMapping": { "blogContent": "initialInputs.blogContent" },
-          "inputPromptTemplate": "Analyze the following blog post: {{blogContent}} and generate a detailed and creative prompt that could be used to create a relevant image for it.",
+          "inputPromptTemplate": "Analyze the following blog post: {{blogContent}}. Based on this analysis, generate *one* concise yet detailed and creative image prompt suitable for an AI image generation tool. Focus on capturing the core subject, key visual elements, overall mood, and artistic style described in the text.",
           "outputKey": "imagePrompt"
         },
         "generateImage": {
           "agentName": "imageGeneratorAgent",
-          "inputMapping": { "imagePrompt": "initialInputs.imagePrompt" },
-          "inputPromptTemplate": "Generate an image based on the following prompt: {{imagePrompt}}.",
+          "inputMapping": { "prompt": "initialInputs.imagePrompt" },
+          "inputPromptTemplate": "Generate an image based on the following prompt: {{prompt}}.",
           "outputKey": "blogImage"
         }
       },
@@ -93,6 +95,24 @@
       "description": "Agency that researches topics, creates blog posts, and generates a relevant image.",
       "teams": ["contentCreationTeam", "imageGenerationTeam"],
       "workflows": {
+        "createBlogPost": {
+          "steps": [
+            {
+              "name": "researchStep",
+              "teamName": "contentCreationTeam",
+              "workflowName": "performResearch",
+              "inputMapping": { "topic": "initialInputs.topic" },
+              "outputKey": "researchOutput"
+            },
+            {
+              "name": "writingStep",
+              "teamName": "contentCreationTeam",
+              "workflowName": "writeBlogPost",
+              "inputMapping": { "researchData": "results.researchStep" },
+              "outputKey": "finalBlogPost"
+            }
+          ]
+        },
         "createBlogPostWithImage": {
           "steps": [
             {

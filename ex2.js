@@ -1,7 +1,7 @@
 import { AgentFactory } from './AgentFactory.js';
 import { TeamFactory } from './TeamFactory.js';
 import { AgencyFactory } from './AgencyFactory.js';
-import { searchTool } from './tools/index.js'; // Assuming searchTool is exported from tools/index.js
+import { searchTool, advancedImageGenerationTool } from './tools/index.js'; // Import both tools
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Main function to run the test
 async function runAgentCentricAgencyTest() {
   try {
-    console.log('Starting Agent-Centric Agency Test...');
+    console.log('Starting Agent-Centric Agency Test with Image Generation...');
 
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -24,11 +24,10 @@ async function runAgentCentricAgencyTest() {
     }
 
     // Path to the agent-centric config file
-    const configPath = path.join(__dirname, 'agent-centric-agency-config.json');
+    const configPath = path.join(__dirname, 'ex2.json');
     console.log(`Loading configuration from ${configPath}...`);
 
     // Create agent factory with API keys and available tools
-    // Tools are registered here for the factory to make them available to agents
     const agentFactory = new AgentFactory({
       defaultProvider: 'gemini',
       apiKeys: {
@@ -39,13 +38,16 @@ async function runAgentCentricAgencyTest() {
     // Register the search tool with the agent factory
     agentFactory.registerTool('search', searchTool);
 
+    // Register the advanced image generation tool
+    agentFactory.registerTool('advancedImageGenerationTool', advancedImageGenerationTool);
+
     // Create team factory
     const teamFactory = new TeamFactory({ agentFactory });
 
     // Create agency factory
     const agencyFactory = new AgencyFactory({
       teamFactory,
-      agentFactory 
+      agentFactory
     });
 
     // Load the agency configuration from the file
@@ -58,36 +60,49 @@ async function runAgentCentricAgencyTest() {
 
     // Define initial inputs for the workflow
     const initialInputs = {
-      topic: 'The impact of AI on the future of work'
+      topic: 'Variety of native mangoes of south Florida'
     };
 
-    console.log(`Executing workflow 'createBlogPost' with topic: "${initialInputs.topic}"`);
+    console.log(`Executing workflow 'createBlogPostWithImage' with topic: "${initialInputs.topic}"`);
 
     // Run the agency workflow
-    const results = await agency.run('createBlogPost', initialInputs);
+    const results = await agency.run('createBlogPostWithImage', initialInputs);
 
     // Display the results
-    console.log('\n=== Agency Workflow Results ===\n');
-    // console.log('Full results object:', JSON.stringify(results, null, 2)); // Optional: for deep debugging
+    console.log('\n=== Agency Workflow Results (with Image Generation) ===\n');
 
     if (results.researchStep) {
-        console.log('\n--- Research Results (output of researchStep, which ran performResearch job) ---');
-        console.log(results.researchStep);
+      console.log('\n--- Research Results (output of researchStep) ---');
+      console.log(results.researchStep);
     } else {
-        console.log('\n--- Research Results: Not found ---');
+      console.log('\n--- Research Results: Not found ---');
     }
 
     if (results.writingStep) {
-        console.log('\n--- Final Blog Post (output of writingStep, which ran writeBlogPost job) ---');
-        console.log(results.writingStep);
+      console.log('\n--- Final Blog Post (output of writingStep) ---');
+      console.log(results.writingStep);
     } else {
-        console.log('\n--- Final Blog Post: Not found ---');
+      console.log('\n--- Final Blog Post: Not found ---');
     }
 
-    console.log('\nAgent-Centric Agency test completed successfully!');
+    if (results.promptingStep) {
+      console.log('\n--- Image Prompt (output of promptingStep) ---');
+      console.log(results.promptingStep);
+    } else {
+      console.log('\n--- Image Prompt: Not found ---');
+    }
+
+    if (results.imageGenerationStep) {
+      console.log('\n--- Blog Image (output of imageGenerationStep) ---');
+      console.log(results.imageGenerationStep);
+    } else {
+      console.log('\n--- Blog Image: Not found ---');
+    }
+
+    console.log('\nAgent-Centric Agency test with image generation completed successfully!');
 
   } catch (error) {
-    console.error('Error running agent-centric agency test:', error);
+    console.error('Error running agent-centric agency test with image generation:', error);
   }
 }
 
