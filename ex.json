@@ -1,0 +1,131 @@
+{
+  "agents": {
+    "researcher": {
+      "name": "Research Agent",
+      "description": "Searches the internet for information on a given topic",
+      "role": "Internet Researcher",
+      "goals": ["Find accurate and relevant information", "Provide comprehensive search results"],
+      "provider": "gemini",
+      "llmConfig": {
+        "temperature": 0.5,
+        "model": "gemini-2.0-flash-lite"
+      },
+      "tools": ["search"]
+    },
+    "writer": {
+      "name": "Blog Writer",
+      "description": "Writes engaging blog posts based on research",
+      "role": "Content Writer",
+      "goals": ["Create engaging content", "Structure information clearly", "Use a conversational tone"],
+      "provider": "gemini",
+      "llmConfig": {
+        "temperature": 0.7,
+        "model": "gemini-2.0-flash-lite"
+      }
+    },
+    "promptGenerator": {
+      "name": "Image Prompt Generator",
+      "description": "Analyzes blog content and generates a suitable image prompt.",
+      "role": "Image Prompt Creator",
+      "goals": ["Create detailed and relevant image prompts", "Ensure prompts align with the blog content"],
+      "provider": "gemini",
+      "llmConfig": {
+        "temperature": 0.6,
+        "model": "gemini-2.0-flash-lite"
+      }
+    },
+    "imageGeneratorAgent": {
+      "name": "Image Generator Agent",
+      "description": "Takes an image prompt and generates an image.",
+      "role": "Image Creator",
+      "goals": ["Generate high-quality images", "Adhere to the provided prompt"],
+      "provider": "someImageProvider", 
+      "llmConfig": {
+      },
+      "tools": ["imageGenerator"] 
+    }
+  },
+  "teams": {
+    "contentCreationTeam": {
+      "name": "Content Creation Team",
+      "description": "Team responsible for both researching and writing blog posts, with dedicated agents for each task.",
+      "agents": ["researcher", "writer"],
+      "jobs": {
+        "performResearch": {
+          "agentName": "researcher",
+          "inputMapping": { "topic": "initialInputs.topic" },
+          "inputPromptTemplate": "Use the 'search' tool to find information on the topic: {{topic}}.",
+          "outputKey": "researchData"
+        },
+        "writeBlogPost": {
+          "agentName": "writer",
+          "inputMapping": { "researchData": "initialInputs.researchData" },
+          "inputPromptTemplate": "Based on the following research findings: {{researchData}}, write an engaging and comprehensive blog post that is between 800 and 900 words in length.",
+          "outputKey": "blogContent" 
+        }
+      },
+      "workflow": ["performResearch", "writeBlogPost"]
+    },
+    "imageGenerationTeam": {
+      "name": "Image Generation Team",
+      "description": "Team responsible for generating an image for the blog post.",
+      "agents": ["promptGenerator", "imageGeneratorAgent"],
+      "jobs": {
+        "generatePrompt": {
+          "agentName": "promptGenerator",
+          "inputMapping": { "blogContent": "initialInputs.blogContent" },
+          "inputPromptTemplate": "Analyze the following blog post: {{blogContent}} and generate a detailed and creative prompt that could be used to create a relevant image for it.",
+          "outputKey": "imagePrompt"
+        },
+        "generateImage": {
+          "agentName": "imageGeneratorAgent",
+          "inputMapping": { "imagePrompt": "initialInputs.imagePrompt" },
+          "inputPromptTemplate": "Generate an image based on the following prompt: {{imagePrompt}}.",
+          "outputKey": "blogImage"
+        }
+      },
+      "workflow": ["generatePrompt", "generateImage"]
+    }
+  },
+  "agency": {
+    "blogCreationAgency": {
+      "name": "Blog Creation Agency",
+      "description": "Agency that researches topics, creates blog posts, and generates a relevant image.",
+      "teams": ["contentCreationTeam", "imageGenerationTeam"],
+      "workflows": {
+        "createBlogPostWithImage": {
+          "steps": [
+            {
+              "name": "researchStep",
+              "teamName": "contentCreationTeam",
+              "workflowName": "performResearch",
+              "inputMapping": { "topic": "initialInputs.topic" },
+              "outputKey": "researchOutput"
+            },
+            {
+              "name": "writingStep",
+              "teamName": "contentCreationTeam",
+              "workflowName": "writeBlogPost",
+              "inputMapping": { "researchData": "results.researchStep" },
+              "outputKey": "blogContent"
+            },
+            {
+              "name": "promptingStep",
+              "teamName": "imageGenerationTeam",
+              "workflowName": "generatePrompt",
+              "inputMapping": { "blogContent": "results.writingStep" },
+              "outputKey": "imagePrompt"
+            },
+            {
+              "name": "imageGenerationStep",
+              "teamName": "imageGenerationTeam",
+              "workflowName": "generateImage",
+              "inputMapping": { "imagePrompt": "results.promptingStep" },
+              "outputKey": "blogImage"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

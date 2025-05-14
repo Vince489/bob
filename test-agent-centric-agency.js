@@ -46,7 +46,7 @@ async function runAgentCentricAgencyTest() {
     // Create agency factory
     const agencyFactory = new AgencyFactory({
       teamFactory,
-      agentFactory // Pass agentFactory here as well if AgencyFactory needs it for loading
+      agentFactory 
     });
 
     // Load the agency configuration from the file
@@ -68,7 +68,6 @@ async function runAgentCentricAgencyTest() {
     const results = await agency.run('createBlogPost', initialInputs);
 
     // Display the results
-    console.log('\n=== Agency Workflow Results ===\n');
     console.log('\n=== Agency Workflow Results ===\n');
     // console.log('Full results object:', JSON.stringify(results, null, 2)); // Optional: for deep debugging
 
