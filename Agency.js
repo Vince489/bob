@@ -169,25 +169,34 @@ export class Agency {
 
         // Run the team workflow or job
         let result;
-        if (step.workflowName) {
-          // If a workflow is specified, run it
-          result = await team.run(stepInput, this.context);
-        } else if (step.jobName) {
-          // If a job is specified, run just that job
-          // This would require extending the Team class with a runJob method
-          throw new Error('Direct job execution not implemented yet.');
-        } else {
-          throw new Error(`Step ${stepName} must specify either workflowName or jobName.`);
-        }
+        // The team.run method now handles the internal workflow/jobs based on the team's config.
+        // The step.workflowName in the agency config should correspond to a workflow defined in the team's config,
+        // or it can be a single job name if the team's run method is adapted to handle that.
+        // For now, we assume team.run executes the team's primary workflow or a sequence of its jobs.
+        // The stepInput is passed to the team's run method.
+        // Pass step.workflowName as the jobNameToRun for the team
+        result = await team.run(stepInput, this.context, step.workflowName);
 
-        // Store the result
+
+        // Store the result based on the agency step's outputKey
+        // The 'result' from team.run will be an object containing results of all jobs in the team's workflow.
+        // If the agency step's outputKey is defined and exists in the team's results, use that.
+        // Otherwise, store the entire team's result object for this agency step.
         if (step.outputKey && typeof result === 'object' && result !== null && step.outputKey in result) {
           stepResults[stepName] = result[step.outputKey];
-        } else {
+        } else if (step.outputKey && typeof result === 'object' && result !== null) {
+          // If outputKey is specified but not directly in result, it might refer to a job within the team's results
+          // This part might need more sophisticated mapping if outputKey is meant to pick a specific job's output
+          // from the team's multi-job result object.
+          // For now, if outputKey is present but not a direct key, we'll log a warning and store the whole team result.
+          console.warn(`[Agency] OutputKey "${step.outputKey}" for step "${stepName}" not found directly in team results. Storing full team result.`);
+          stepResults[stepName] = result;
+        }
+        else {
           stepResults[stepName] = result;
         }
 
-        this._log('WorkflowStepSuccess', { workflowName, stepName, resultSummary: typeof result === 'object' ? 'Object result' : 'String result' });
+        this._log('WorkflowStepSuccess', { workflowName, stepName, resultSummary: typeof result === 'object' ? `Object with keys: ${Object.keys(result || {}).join(', ')}` : 'String result' });
       } catch (error) {
         console.error(`Error during workflow step ${stepName}:`, error);
         this._log('WorkflowStepError', { workflowName, stepName, error: error.message, stack: error.stack });

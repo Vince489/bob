@@ -1,0 +1,161 @@
+{
+  "agency": {
+    "name": "Content Creation Hub",
+    "description": "An agency focused on generating and refining written content."
+  },
+  "agents": {
+    "researchAgent": {
+      "id": "researchAgent",
+      "name": "Research Bot",
+      "description": "Performs research on a given topic.",
+      "role": "You are a research assistant. Your primary function is to use the 'search' tool to find relevant information. YOU MUST use the search tool to answer requests. To use the search tool, YOU MUST output a ```tool_code``` block containing a print() call to the 'search' tool with the query. For example: ```tool_code\nprint(search(query=\"your search query\"))\n```. Do not respond in natural language before providing the tool_code block if a search is needed. After receiving the search results, summarize the key findings.",
+      "goals": [
+        "Use the search tool (via ```tool_code``` block) to find information related to the topic and brief.",
+        "Summarize the key findings from the search results.",
+        "Provide a concise summary of the research."
+      ],
+      "provider": "gemini",
+      "llmConfig": {
+        "model": "gemini-2.0-flash-lite",
+        "temperature": 0.7,
+        "maxOutputTokens": 1024
+      },
+      "tools": {
+        "search": {}
+      }
+    },
+    "ideaGenerator": {
+      "id": "ideaGenerator",
+      "name": "Idea Generator Bot",
+      "description": "Generates creative and relevant content ideas based on research.",
+      "role": "You are a brainstorming expert. Your role is to use the provided research summary, topic, and brief to come up with a diverse range of compelling blog ideas. DO NOT ask for additional information. The topic is 'AI in Content Creation' and the brief is to discuss current applications and future potential of AI in content creation across text, images, and video. Generate exactly 5 specific content ideas with brief descriptions based on the research.",
+      "goals": [
+        "Generate exactly 5 specific blog ideas based on the provided research summary, topic, and brief.",
+        "Provide a brief description or angle for each idea.",
+        "Ensure ideas cover current applications and future potential of AI in content creation across text, images, and video."
+      ],
+      "provider": "gemini",
+      "llmConfig": {
+        "model": "gemini-2.0-flash-lite",
+        "temperature": 0.7,
+        "maxOutputTokens": 512
+      }
+    },
+    "contentWriter": {
+      "id": "contentWriter",
+      "name": "Content Writer Bot",
+      "description": "Creates well-written and engaging content.",
+      "role": "You are a skilled content writer. Your job is to SELECT ONLY ONE content idea from the generateIdeas results and develop ONLY THAT ONE IDEA into a full article. DO NOT write about multiple ideas or create excerpts for each idea. The generateIdeas results will contain a numbered list of ideas. CHOOSE ONLY ONE NUMBER (e.g., idea #1 or idea #3) and write a complete 800-word article ONLY about that specific idea. Begin your response by stating 'I have selected idea #X:' followed by the title of that idea. Then write your complete article about ONLY that one idea. DO NOT ask for additional information or input. Target a general audience of marketing professionals and tech enthusiasts with an informative and objective tone.",
+      "goals": [
+        "Select ONLY ONE numbered idea from the generateIdeas results.",
+        "Begin your response by explicitly stating which numbered idea you've chosen.",
+        "Write a complete 800-word article ONLY about that ONE chosen idea.",
+        "Do NOT write short excerpts about multiple ideas.",
+        "Structure the content logically with an introduction, body, and conclusion.",
+        "Write in a clear, concise, and engaging manner for marketing professionals and tech enthusiasts.",
+        "Focus on current applications and future potential of AI in content creation."
+      ],
+      "provider": "gemini",
+      "llmConfig": {
+        "model": "gemini-2.0-flash-lite",
+        "temperature": 0.6,
+        "maxOutputTokens": 2048
+      }
+    },
+    "contentRefiner": {
+      "id": "contentRefiner",
+      "name": "Content Refiner Bot",
+      "description": "Reviews and improves existing content.",
+      "role": "You are a meticulous content editor. Your task is to review the written content that will be provided to you in a section labeled 'WriteContent Results' in your input. DO NOT ask for additional information or content to review - use ONLY the content provided in the 'WriteContent Results' section. Directly improve and rewrite the content to make it better. Return the fully refined and improved version of the content immediately. If the content is incomplete, complete it while maintaining the original style and tone. Your output should be the complete, refined article.",
+      "goals": [
+        "Review and edit ONLY the content from the 'WriteContent Results' section in your input.",
+        "Do NOT ask for additional input or information.",
+        "Identify and correct grammatical errors.",
+        "Enhance clarity and flow of the content.",
+        "Improve style and tone to make the content more engaging.",
+        "Ensure the content meets the requirements for an article about AI in content creation.",
+        "Return the fully refined and improved version of the content, not just suggestions.",
+        "If the content is incomplete, complete it while maintaining the original style and tone."
+      ],
+      "provider": "gemini",
+      "llmConfig": {
+        "model": "gemini-2.0-flash-lite",
+        "temperature": 0.5,
+        "maxOutputTokens": 2048
+      }
+    }
+  },
+  "team": {
+    "contentCreationTeam": {
+      "name": "Content Creation Team",
+      "description": "A team dedicated to generating, writing, and refining content.",
+      "agents": [
+        "researchAgent",
+        "ideaGenerator",
+        "contentWriter",
+        "contentRefiner"
+      ],
+      "jobs": {
+        "performResearch": {
+          "description": "Perform research on the topic.",
+          "agent": "researchAgent",
+          "inputs": [
+            "topic",
+            "brief"
+          ]
+        },
+        "generateIdeas": {
+          "description": "Generate initial content ideas based on research.",
+          "agent": "ideaGenerator",
+          "context": [
+            "performResearch"
+          ],
+          "inputs": [
+            "topic",
+            "brief"
+          ]
+        },
+        "writeContent": {
+          "description": "Write the full content based on ideas from generateIdeas.",
+          "agent": "contentWriter",
+          "context": [
+            "generateIdeas"
+          ],
+          "inputs": [
+            "topic",
+            "brief"
+          ]
+        },
+        "refineContent": {
+          "description": "Review and refine the written content.",
+          "agent": "contentRefiner",
+          "context": [
+            "writeContent"
+          ],
+          "inputs": []
+        }
+      },
+      "workflow": [
+        "performResearch",
+        "generateIdeas",
+        "writeContent",
+        "refineContent"
+      ]
+    }
+  },
+  "brief": {
+    "blog-post-007": {
+      "title": "The Future of AI in Content Creation",
+      "overview": "Generate a blog post discussing the impact of AI on content creation.",
+      "background": "Audience is marketing professionals and tech enthusiasts.",
+      "objective": "Create an informative and engaging blog post (around 800 words).",
+      "topic": "AI in Content Creation"
+    }
+  },
+  "assignments": {
+    "blog-post-007": {
+      "assignedTo": "contentCreationTeam",
+      "type": "team"
+    }
+  }
+}

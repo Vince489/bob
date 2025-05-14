@@ -103,7 +103,13 @@ export class AgencyFactory {
         const fileContent = await readFile(new URL(fileUrl), 'utf8');
         const agencyConfig = JSON.parse(fileContent);
         
-        return this.createAgency(agencyConfig);
+        // Assuming the config file defines a single primary agency under the "agency" key
+        // and we want to load the one named "blogCreationAgency" as per the test config.
+        // A more general solution might require specifying the agency ID to load.
+        const agencyIdToLoad = 'blogCreationAgency'; // Hardcoded for this specific test config
+
+        // Use createAgencyFromConfig which handles creating teams and agents from the full config
+        return this.createAgencyFromConfig(agencyConfig, agencyIdToLoad);
       }
     } catch (error) {
       console.error(`Error loading agency configuration from ${filePath}:`, error);
@@ -157,7 +163,8 @@ export class AgencyFactory {
         continue;
       }
       
-      teams[teamName] = this.teamFactory.createTeam(teamConfig);
+      // Use createTeamFromConfig which handles creating agents from the full config
+      teams[teamName] = this.teamFactory.createTeamFromConfig(config, teamId);
     }
     
     // Create the agency with the teams

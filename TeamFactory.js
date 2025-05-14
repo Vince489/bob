@@ -75,7 +75,7 @@ export class TeamFactory {
    */
   createTeamFromConfig(config, teamId) {
     // Get the team configuration
-    const teamConfig = config.team[teamId];
+    const teamConfig = config.teams[teamId];
     if (!teamConfig) {
       throw new Error(`Team configuration not found for ID: ${teamId}`);
     }

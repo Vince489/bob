@@ -81,18 +81,24 @@ export class Team {
     }
 
     if (!job.inputMapping) {
+      // If it's the first job in the team's workflow AND there are initialInputs for the team, use them.
       if (this.workflow.indexOf(jobName) === 0 && initialInputs && Object.keys(initialInputs).length > 0) {
-        this._log('InputInfo', { jobName, message: 'No inputMapping, using initialInputs for the first job.'});
-        return initialInputs; 
+        this._log('InputInfo', { jobName, message: 'No inputMapping for job, using initialInputs passed to team for the first job.'});
+        return { ...initialInputs }; // Return a copy
       }
-      this._log('InputInfo', { jobName, message: 'No inputMapping and not the first job, or no initialInputs. Passing empty object.'});
+      // Otherwise, if no inputMapping and not the first job, or no initialInputs to the team, it gets an empty object.
+      this._log('InputInfo', { jobName, message: 'No inputMapping for job. Not the first job or no initialInputs to team. Passing empty object to agent.'});
       return {};
     }
 
+    // If there IS an inputMapping for the job, resolve it.
     const resolvedInputs = {};
+    // Sources for input mapping:
+    // 1. `initialInputs`: Inputs passed to the `team.run()` method. These are typically from the agency.
+    // 2. `results`: Results from *previous jobs within this current team run*.
     const sources = {
-      initialInputs: initialInputs,
-      results: this.results 
+      initialInputs: initialInputs, // Inputs from the agency/caller
+      results: this.results      // Results from previous jobs in *this team's current workflow execution*
     };
 
     for (const key in job.inputMapping) {
@@ -105,18 +111,24 @@ export class Team {
         resolvedInputs[key] = value;
       }
     }
-    return resolvedInputs; 
+    return resolvedInputs;
   }
 
-  async run(initialInputs = {}, initialContext = {}) {
-    this._log('TeamRunStart', { initialInputsCount: Object.keys(initialInputs).length, contextKeys: Object.keys(initialContext) });
-    this.results = {}; 
-    this.context = { ...initialContext }; 
+  async run(initialInputs = {}, initialContext = {}, jobNameToRun = null) {
+    this._log('TeamRunStart', { 
+      initialInputsCount: Object.keys(initialInputs).length, 
+      contextKeys: Object.keys(initialContext),
+      jobToRun: jobNameToRun || 'full workflow'
+    });
+    this.results = {}; // Reset team's internal results for this run
+    this.context = { ...initialContext }; // Set context for this run
 
-    for (const jobName of this.workflow) {
+    const jobsToExecute = jobNameToRun ? [jobNameToRun] : this.workflow;
+
+    for (const jobName of jobsToExecute) {
       const job = this.jobs[jobName];
       if (!job) {
-        this._log('JobSkipped', { jobName, reason: 'Job definition not found.' });
+        this._log('JobSkipped', { jobName, reason: `Job definition not found${jobNameToRun ? ' (specified directly)' : ''}.` });
         this.results[jobName] = { error: `Job ${jobName} not found.` };
         continue;
       }
@@ -139,7 +151,7 @@ export class Team {
 
         if (job.inputPromptTemplate && typeof job.inputPromptTemplate === 'string') {
             agentFeedInput = job.inputPromptTemplate.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-                return jobInputObject[key] !== undefined ? String(jobInputObject[key]) : (match); // Keep original {{key}} if not found
+                return jobInputObject[key] !== undefined ? String(jobInputObject[key]) : (match); 
             });
         } else if (inputKeys.length === 1) {
             agentFeedInput = jobInputObject[inputKeys[0]];
@@ -158,20 +170,50 @@ export class Team {
         const resultPreview = typeof agentResult === 'string' ? (agentResult.length > 100 ? agentResult.substring(0, 97) + '...' : agentResult) : 'Non-string result';
         this._log('JobSuccess', { jobName, resultPreview });
 
-        if (job.outputKey && typeof agentResult === 'object' && agentResult !== null && job.outputKey in agentResult) {
-            this.results[jobName] = agentResult[job.outputKey];
+        // If a specific job is run (jobNameToRun is not null),
+        // its output (potentially extracted via job.outputKey if defined on the job)
+        // becomes the direct result of this team.run() call.
+        if (jobNameToRun) {
+          if (job.outputKey && typeof agentResult === 'object' && agentResult !== null && job.outputKey in agentResult) {
+            this.results = agentResult[job.outputKey];
+          } else if (job.outputKey && (typeof agentResult !== 'object' || agentResult === null)) {
+            // If outputKey is defined but agentResult is not an object, store agentResult directly under outputKey
+            // This handles cases where agentResult is a string and outputKey is meant to name it.
+            // However, the more standard expectation for outputKey is to extract from an object.
+            // For simplicity now, if job.outputKey is present, we assume the result should be keyed by it.
+            // This might need refinement if agentResult is a primitive and outputKey is also present.
+            // A safer approach if agentResult is primitive and outputKey is present:
+            // this.results = { [job.outputKey]: agentResult };
+            // For now, let's assume if outputKey is present, the agentResult should be an object or it's direct.
+            // The current logic: if outputKey is present and agentResult is NOT an object from which to extract,
+            // then this.results will just be agentResult.
+            this.results = agentResult; // Fallback: store direct agent result
+             console.warn(`[Team: ${this.name}] Job "${jobName}" has outputKey "${job.outputKey}" but agentResult is not an object. Storing direct agent result.`);
+          }
+          else {
+            this.results = agentResult;
+          }
         } else {
-            this.results[jobName] = agentResult;
+          // Full workflow: store result under jobName, potentially extracting via outputKey
+          if (job.outputKey && typeof agentResult === 'object' && agentResult !== null && job.outputKey in agentResult) {
+              this.results[jobName] = agentResult[job.outputKey];
+          } else {
+              this.results[jobName] = agentResult;
+          }
         }
 
       } catch (error) {
         console.error(`Error during job ${jobName}:`, error);
         this._log('JobError', { jobName, error: error.message, stack: error.stack });
-        this.results[jobName] = { error: error.message, details: error.stack };
+        if (jobNameToRun) {
+          this.results = { error: error.message, details: error.stack };
+        } else {
+          this.results[jobName] = { error: error.message, details: error.stack };
+        }
       }
     }
 
-    this._log('TeamRunEnd', { finalResultsCount: Object.keys(this.results).length });
+    this._log('TeamRunEnd', { finalResultsCount: jobNameToRun ? (this.results && typeof this.results === 'object' && !this.results.error ? Object.keys(this.results).length : (this.results && !this.results.error ? 1 : 0) ) : Object.keys(this.results).length });
     return this.results;
   }
 }
