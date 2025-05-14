@@ -1,0 +1,18 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@google-cloud/speech": "^7.0.1",
+    "@google/genai": "^0.12.0",
+    "cheerio": "^1.0.0",
+    "docx": "^9.5.0",
+    "dotenv": "^16.5.0",
+    "googleapis": "^148.0.0",
+    "json2csv": "^6.0.0-alpha.2",
+    "luxon": "^3.6.1",
+    "mathjs": "^14.4.0",
+    "pdf-lib": "^1.17.1",
+    "puppeteer": "^24.8.0",
+    "socket.io-client": "^4.8.1",
+    "xlsx": "^0.18.5"
+  }
+}
