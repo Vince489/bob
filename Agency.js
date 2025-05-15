@@ -149,58 +149,118 @@ export class Agency {
 
     this.context = { ...initialContext };
     const stepResults = {};
+    let i = 0;
 
-    for (let i = 0; i < workflow.steps.length; i++) {
-      const step = workflow.steps[i];
-      const stepName = step.name || `step${i + 1}`;
-      
-      this._log('WorkflowStepStart', { workflowName, stepName, teamName: step.teamName, teamWorkflow: step.workflowName });
-      
-      const team = this.teams[step.teamName];
-      if (!team) {
-        this._log('WorkflowStepError', { workflowName, stepName, error: `Team '${step.teamName}' not found.` });
-        stepResults[stepName] = { error: `Team '${step.teamName}' not found.` };
-        continue;
-      }
+    while (i < workflow.steps.length) {
+      const currentStepConfig = workflow.steps[i];
+      const currentStepName = currentStepConfig.name || `step${i + 1}`;
 
-      try {
-        const stepInput = this._prepareStepInput(step, initialInputs, stepResults);
-        this._log('WorkflowStepInputPrepared', { workflowName, stepName, inputObject: stepInput });
-
-        // Run the team workflow or job
-        let result;
-        // The team.run method now handles the internal workflow/jobs based on the team's config.
-        // The step.workflowName in the agency config should correspond to a workflow defined in the team's config,
-        // or it can be a single job name if the team's run method is adapted to handle that.
-        // For now, we assume team.run executes the team's primary workflow or a sequence of its jobs.
-        // The stepInput is passed to the team's run method.
-        // Pass step.workflowName as the jobNameToRun for the team
-        result = await team.run(stepInput, this.context, step.workflowName);
-
-
-        // Store the result based on the agency step's outputKey
-        // The 'result' from team.run will be an object containing results of all jobs in the team's workflow.
-        // If the agency step's outputKey is defined and exists in the team's results, use that.
-        // Otherwise, store the entire team's result object for this agency step.
-        if (step.outputKey && typeof result === 'object' && result !== null && step.outputKey in result) {
-          stepResults[stepName] = result[step.outputKey];
-        } else if (step.outputKey && typeof result === 'object' && result !== null) {
-          // If outputKey is specified but not directly in result, it might refer to a job within the team's results
-          // This part might need more sophisticated mapping if outputKey is meant to pick a specific job's output
-          // from the team's multi-job result object.
-          // For now, if outputKey is present but not a direct key, we'll log a warning and store the whole team result.
-          console.warn(`[Agency] OutputKey "${step.outputKey}" for step "${stepName}" not found directly in team results. Storing full team result.`);
-          stepResults[stepName] = result;
-        }
-        else {
-          stepResults[stepName] = result;
+      if (currentStepConfig.parallel) {
+        const parallelGroup = [];
+        let j = i;
+        // Collect all adjacent parallel steps
+        while (j < workflow.steps.length && workflow.steps[j].parallel) {
+          const parallelStepConfig = workflow.steps[j];
+          const parallelStepName = parallelStepConfig.name || `step${j + 1}`;
+          parallelGroup.push({ config: parallelStepConfig, name: parallelStepName, originalIndex: j });
+          j++;
         }
 
-        this._log('WorkflowStepSuccess', { workflowName, stepName, resultSummary: typeof result === 'object' ? `Object with keys: ${Object.keys(result || {}).join(', ')}` : 'String result' });
-      } catch (error) {
-        console.error(`Error during workflow step ${stepName}:`, error);
-        this._log('WorkflowStepError', { workflowName, stepName, error: error.message, stack: error.stack });
-        stepResults[stepName] = { error: error.message, details: error.stack };
+        this._log('WorkflowParallelGroupStart', { workflowName, groupSize: parallelGroup.length, steps: parallelGroup.map(s => s.name) });
+
+        const promises = parallelGroup.map(async (stepInfo) => {
+          const { config: step, name: stepName } = stepInfo;
+          this._log('WorkflowStepStart (Parallel)', { workflowName, stepName, teamName: step.teamName, teamWorkflow: step.workflowName });
+
+          const team = this.teams[step.teamName];
+          if (!team) {
+            this._log('WorkflowStepError (Parallel)', { workflowName, stepName, error: `Team '${step.teamName}' not found.` });
+            return { stepName, error: `Team '${step.teamName}' not found.` };
+          }
+
+          try {
+            // IMPORTANT: _prepareStepInput uses stepResults, which should only contain results from *previous sequential* steps.
+            // For parallel steps, their inputs should not depend on each other's outputs from the *same* parallel batch.
+            const stepInput = this._prepareStepInput(step, initialInputs, stepResults);
+            this._log('WorkflowStepInputPrepared (Parallel)', { workflowName, stepName, inputObject: stepInput });
+
+            const result = await team.run(stepInput, this.context, step.workflowName);
+
+            let processedResult;
+            if (step.outputKey && typeof result === 'object' && result !== null && step.outputKey in result) {
+              processedResult = result[step.outputKey];
+            } else if (step.outputKey && typeof result === 'object' && result !== null) {
+              console.warn(`[Agency] OutputKey "${step.outputKey}" for parallel step "${stepName}" not found directly in team results. Storing full team result.`);
+              processedResult = result;
+            } else {
+              processedResult = result;
+            }
+            this._log('WorkflowStepSuccess (Parallel)', { workflowName, stepName, resultSummary: typeof processedResult === 'object' ? `Object with keys: ${Object.keys(processedResult || {}).join(', ')}` : 'String result' });
+            return { stepName, data: processedResult };
+          } catch (error) {
+            console.error(`Error during parallel workflow step ${stepName}:`, error);
+            this._log('WorkflowStepError (Parallel)', { workflowName, stepName, error: error.message, stack: error.stack });
+            return { stepName, error: error.message, details: error.stack };
+          }
+        });
+
+        try {
+          const groupResults = await Promise.all(promises);
+          groupResults.forEach(res => {
+            if (res.error) {
+              stepResults[res.stepName] = { error: res.error, details: res.details };
+            } else {
+              stepResults[res.stepName] = res.data;
+            }
+          });
+          this._log('WorkflowParallelGroupEnd', { workflowName, groupSize: parallelGroup.length });
+        } catch (error) {
+          // This catch block might be redundant if Promise.all itself doesn't throw for individual promise rejections,
+          // but rather returns an array of settled promises (if using Promise.allSettled, which we are not here).
+          // With Promise.all, it rejects on the first error.
+          console.error(`Error executing parallel group in workflow ${workflowName}:`, error);
+          this._log('WorkflowParallelGroupError', { workflowName, error: error.message, stack: error.stack });
+          // Decide how to handle partial failures within a group if Promise.all rejects.
+          // For now, the individual error logging within the map should capture issues.
+          // We might need to mark all steps in the failed group as errored if not already.
+        }
+        i = j; // Move index past the processed parallel group
+      } else {
+        // Sequential step execution (original logic)
+        const step = currentStepConfig;
+        const stepName = currentStepName;
+
+        this._log('WorkflowStepStart (Sequential)', { workflowName, stepName, teamName: step.teamName, teamWorkflow: step.workflowName });
+        
+        const team = this.teams[step.teamName];
+        if (!team) {
+          this._log('WorkflowStepError (Sequential)', { workflowName, stepName, error: `Team '${step.teamName}' not found.` });
+          stepResults[stepName] = { error: `Team '${step.teamName}' not found.` };
+          i++;
+          continue;
+        }
+
+        try {
+          const stepInput = this._prepareStepInput(step, initialInputs, stepResults);
+          this._log('WorkflowStepInputPrepared (Sequential)', { workflowName, stepName, inputObject: stepInput });
+
+          let result = await team.run(stepInput, this.context, step.workflowName);
+
+          if (step.outputKey && typeof result === 'object' && result !== null && step.outputKey in result) {
+            stepResults[stepName] = result[step.outputKey];
+          } else if (step.outputKey && typeof result === 'object' && result !== null) {
+            console.warn(`[Agency] OutputKey "${step.outputKey}" for sequential step "${stepName}" not found directly in team results. Storing full team result.`);
+            stepResults[stepName] = result;
+          } else {
+            stepResults[stepName] = result;
+          }
+          this._log('WorkflowStepSuccess (Sequential)', { workflowName, stepName, resultSummary: typeof result === 'object' ? `Object with keys: ${Object.keys(result || {}).join(', ')}` : 'String result' });
+        } catch (error) {
+          console.error(`Error during sequential workflow step ${stepName}:`, error);
+          this._log('WorkflowStepError (Sequential)', { workflowName, stepName, error: error.message, stack: error.stack });
+          stepResults[stepName] = { error: error.message, details: error.stack };
+        }
+        i++;
       }
     }
 

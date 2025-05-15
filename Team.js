@@ -120,100 +120,163 @@ export class Team {
       contextKeys: Object.keys(initialContext),
       jobToRun: jobNameToRun || 'full workflow'
     });
-    this.results = {}; // Reset team's internal results for this run
     this.context = { ...initialContext }; // Set context for this run
+    const teamRunResults = {}; // Use a temporary object for this run's job results
 
-    const jobsToExecute = jobNameToRun ? [jobNameToRun] : this.workflow;
-
-    for (const jobName of jobsToExecute) {
-      const job = this.jobs[jobName];
+    if (jobNameToRun) {
+      // Execute a single specified job
+      const job = this.jobs[jobNameToRun];
       if (!job) {
-        this._log('JobSkipped', { jobName, reason: `Job definition not found${jobNameToRun ? ' (specified directly)' : ''}.` });
-        this.results[jobName] = { error: `Job ${jobName} not found.` };
-        continue;
+        this._log('JobSkipped', { jobName: jobNameToRun, reason: 'Job definition not found (specified directly).' });
+        this.results = { error: `Job ${jobNameToRun} not found.` }; // Set team's main result for single job run
+        return this.results;
       }
+      // For a single job run, it cannot be parallel with others in this context.
+      // We use teamRunResults to store its output before assigning to this.results
+      await this._executeJob(jobNameToRun, job, initialInputs, teamRunResults, true);
+      this.results = teamRunResults[jobNameToRun]; // The result of the single job is the team's result
 
-      this._log('JobStart', { jobName, agentName: job.agentName });
+    } else {
+      // Execute the full workflow
+      let i = 0;
+      while (i < this.workflow.length) {
+        const currentJobName = this.workflow[i];
+        const currentJobDefinition = this.jobs[currentJobName];
 
-      const agent = this.agents[job.agentName];
-      if (!agent) {
-        this._log('JobError', { jobName, agentName: job.agentName, error: 'Agent not found.' });
-        this.results[jobName] = { error: `Agent ${job.agentName} not found for job ${jobName}.` };
-        continue;
-      }
-
-      try {
-        const jobInputObject = this._prepareJobInput(jobName, initialInputs);
-        this._log('JobInputPrepared', { jobName, inputObject: jobInputObject });
-
-        let agentFeedInput;
-        const inputKeys = Object.keys(jobInputObject);
-
-        if (job.inputPromptTemplate && typeof job.inputPromptTemplate === 'string') {
-            agentFeedInput = job.inputPromptTemplate.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-                return jobInputObject[key] !== undefined ? String(jobInputObject[key]) : (match); 
-            });
-        } else if (inputKeys.length === 1) {
-            agentFeedInput = jobInputObject[inputKeys[0]];
-        } else if (inputKeys.length > 0) {
-            agentFeedInput = JSON.stringify(jobInputObject, null, 2);
-            this._log('JobInputSerialized', { jobName, message: 'Multiple input keys, no template, serialized to JSON.' });
-        } else {
-            agentFeedInput = ''; 
-        }
-        
-        if (typeof agentFeedInput !== 'string') {
-            agentFeedInput = String(agentFeedInput);
+        if (!currentJobDefinition) {
+          this._log('JobSkipped', { jobName: currentJobName, reason: 'Job definition not found in workflow.' });
+          teamRunResults[currentJobName] = { error: `Job ${currentJobName} not found.` };
+          i++;
+          continue;
         }
 
-        const agentResult = await agent.run(agentFeedInput, this.context);
-        const resultPreview = typeof agentResult === 'string' ? (agentResult.length > 100 ? agentResult.substring(0, 97) + '...' : agentResult) : 'Non-string result';
-        this._log('JobSuccess', { jobName, resultPreview });
+        if (currentJobDefinition.parallel) {
+          const parallelJobGroup = [];
+          let j = i;
+          // Collect all adjacent parallel jobs from the workflow
+          while (j < this.workflow.length) {
+            const jobNameInWorkflow = this.workflow[j];
+            const jobDef = this.jobs[jobNameInWorkflow];
+            if (jobDef && jobDef.parallel) {
+              parallelJobGroup.push({ name: jobNameInWorkflow, definition: jobDef });
+              j++;
+            } else {
+              break; // End of parallel block
+            }
+          }
 
-        // If a specific job is run (jobNameToRun is not null),
-        // its output (potentially extracted via job.outputKey if defined on the job)
-        // becomes the direct result of this team.run() call.
-        if (jobNameToRun) {
-          if (job.outputKey && typeof agentResult === 'object' && agentResult !== null && job.outputKey in agentResult) {
-            this.results = agentResult[job.outputKey];
-          } else if (job.outputKey && (typeof agentResult !== 'object' || agentResult === null)) {
-            // If outputKey is defined but agentResult is not an object, store agentResult directly under outputKey
-            // This handles cases where agentResult is a string and outputKey is meant to name it.
-            // However, the more standard expectation for outputKey is to extract from an object.
-            // For simplicity now, if job.outputKey is present, we assume the result should be keyed by it.
-            // This might need refinement if agentResult is a primitive and outputKey is also present.
-            // A safer approach if agentResult is primitive and outputKey is present:
-            // this.results = { [job.outputKey]: agentResult };
-            // For now, let's assume if outputKey is present, the agentResult should be an object or it's direct.
-            // The current logic: if outputKey is present and agentResult is NOT an object from which to extract,
-            // then this.results will just be agentResult.
-            this.results = agentResult; // Fallback: store direct agent result
-             console.warn(`[Team: ${this.name}] Job "${jobName}" has outputKey "${job.outputKey}" but agentResult is not an object. Storing direct agent result.`);
-          }
-          else {
-            this.results = agentResult;
-          }
-        } else {
-          // Full workflow: store result under jobName, potentially extracting via outputKey
-          if (job.outputKey && typeof agentResult === 'object' && agentResult !== null && job.outputKey in agentResult) {
-              this.results[jobName] = agentResult[job.outputKey];
-          } else {
-              this.results[jobName] = agentResult;
-          }
-        }
+          this._log('TeamParallelGroupStart', { teamName: this.name, groupSize: parallelJobGroup.length, jobs: parallelJobGroup.map(j => j.name) });
 
-      } catch (error) {
-        console.error(`Error during job ${jobName}:`, error);
-        this._log('JobError', { jobName, error: error.message, stack: error.stack });
-        if (jobNameToRun) {
-          this.results = { error: error.message, details: error.stack };
+          const jobPromises = parallelJobGroup.map(jobInfo =>
+            this._executeJob(jobInfo.name, jobInfo.definition, initialInputs, teamRunResults, false)
+          );
+
+          try {
+            await Promise.all(jobPromises);
+            // Results are already populated in teamRunResults by _executeJob
+            this._log('TeamParallelGroupEnd', { teamName: this.name, groupSize: parallelJobGroup.length });
+          } catch (error) {
+            // Promise.all rejects on first error. Individual errors are logged in _executeJob.
+            // This top-level catch is for the Promise.all itself.
+            console.error(`Error executing parallel job group in team ${this.name}:`, error);
+            this._log('TeamParallelGroupError', { teamName: this.name, error: error.message, stack: error.stack });
+            // Potentially mark remaining jobs in group as errored if not already handled by _executeJob
+          }
+          i = j; // Move index past the processed parallel group
         } else {
-          this.results[jobName] = { error: error.message, details: error.stack };
+          // Sequential job execution
+          await this._executeJob(currentJobName, currentJobDefinition, initialInputs, teamRunResults, false);
+          i++;
         }
       }
+      this.results = teamRunResults; // Full workflow results
+    }
+    
+    const finalResultsCount = (jobNameToRun)
+        ? (this.results && typeof this.results === 'object' && !this.results.error ? 1 : (this.results && !this.results.error ? 1 : 0)) // Simplified: if single job, result is 1 item or error
+        : Object.keys(this.results).length;
+    this._log('TeamRunEnd', { finalResultsCount });
+    return this.results;
+  }
+
+  /**
+   * Executes a single job, whether sequential or part of a parallel batch.
+   * Populates results into targetResultsObject.
+   * @param {string} jobName - The name of the job.
+   * @param {Object} job - The job definition.
+   * @param {Object} initialInputs - Inputs passed to the team.run() method (used for _prepareJobInput).
+   * @param {Object} targetResultsObject - The object where results for this job run should be stored.
+   * @param {boolean} isSingleJobRunContext - True if the overall team.run is for a single job (affects how final team.results is set).
+   * @private
+   */
+  async _executeJob(jobName, job, initialInputs, targetResultsObject, isSingleJobRunContext) {
+    // Note: `this.results` in _prepareJobInput refers to the *cumulative results of prior jobs in the current team run*.
+    // `targetResultsObject` is where the *current* job's result will be placed.
+    // For the first job(s) in a run (or first parallel batch), `this.results` used by `_prepareJobInput` would be empty or from a previous sequential block.
+
+    this._log('JobStart', { jobName, agentName: job.agentName, mode: job.parallel ? 'ParallelCandidate' : 'Sequential' });
+
+    const agent = this.agents[job.agentName];
+    if (!agent) {
+      this._log('JobError', { jobName, agentName: job.agentName, error: 'Agent not found.' });
+      targetResultsObject[jobName] = { error: `Agent ${job.agentName} not found for job ${jobName}.` };
+      if (job.parallel) { // If a parallel job fails to find its agent, it should throw to reject Promise.all
+          throw new Error(`Agent ${job.agentName} not found for job ${jobName}.`);
+      }
+      return; // For sequential, just record error and return
     }
 
-    this._log('TeamRunEnd', { finalResultsCount: jobNameToRun ? (this.results && typeof this.results === 'object' && !this.results.error ? Object.keys(this.results).length : (this.results && !this.results.error ? 1 : 0) ) : Object.keys(this.results).length });
-    return this.results;
+    try {
+      // Pass `targetResultsObject` to `_prepareJobInput` if inputs can come from other jobs in the same parallel batch.
+      // Current design: `_prepareJobInput` uses `this.results` which are from *completed* (prior sequential or prior parallel batch) jobs.
+      // This means jobs in the *same* parallel batch cannot directly depend on each other's outputs via `this.results`.
+      // They would rely on `initialInputs` or results from prior sequential steps.
+      const jobInputObject = this._prepareJobInput(jobName, initialInputs); // Uses this.results (previous jobs)
+      this._log('JobInputPrepared', { jobName, inputObject: jobInputObject });
+
+      let agentFeedInput;
+      const inputKeys = Object.keys(jobInputObject);
+
+      if (job.inputPromptTemplate && typeof job.inputPromptTemplate === 'string') {
+          agentFeedInput = job.inputPromptTemplate.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+              return jobInputObject[key] !== undefined ? String(jobInputObject[key]) : (match);
+          });
+      } else if (inputKeys.length === 1) {
+          agentFeedInput = jobInputObject[inputKeys[0]];
+      } else if (inputKeys.length > 0) {
+          agentFeedInput = JSON.stringify(jobInputObject, null, 2);
+          this._log('JobInputSerialized', { jobName, message: 'Multiple input keys, no template, serialized to JSON.' });
+      } else {
+          agentFeedInput = '';
+      }
+      
+      if (typeof agentFeedInput !== 'string') {
+          agentFeedInput = String(agentFeedInput);
+      }
+
+      const agentResult = await agent.run(agentFeedInput, this.context);
+      const resultPreview = typeof agentResult === 'string' ? (agentResult.length > 100 ? agentResult.substring(0, 97) + '...' : agentResult) : 'Non-string result';
+      this._log('JobSuccess', { jobName, resultPreview });
+
+      // Store result in the target object (teamRunResults)
+      // If job.outputKey is present, try to extract; otherwise, store the whole agentResult.
+      if (job.outputKey && typeof agentResult === 'object' && agentResult !== null && job.outputKey in agentResult) {
+          targetResultsObject[jobName] = agentResult[job.outputKey];
+      } else if (job.outputKey && (typeof agentResult !== 'object' || agentResult === null)) {
+          console.warn(`[Team: ${this.name}] Job "${jobName}" has outputKey "${job.outputKey}" but agentResult is not an object/null. Storing direct agent result under jobName.`);
+          targetResultsObject[jobName] = agentResult; // Store direct result if outputKey present but not extractable
+      }
+      else {
+          targetResultsObject[jobName] = agentResult;
+      }
+
+    } catch (error) {
+      console.error(`Error during job ${jobName}:`, error);
+      this._log('JobError', { jobName, error: error.message, stack: error.stack });
+      targetResultsObject[jobName] = { error: error.message, details: error.stack };
+      if (job.parallel) { // If a parallel job errors during execution, throw to reject Promise.all
+        throw error;
+      }
+    }
   }
 }
